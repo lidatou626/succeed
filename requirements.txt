@@ -12,3 +12,4 @@ plotly==5.18.0
 rich==13.9.4
 tzdata==2025.2
 brotli==1.1.0
+openpyxl
