@@ -16,9 +16,10 @@ jinja2==3.1.6
 markupsafe==3.0.2
 pyyaml==6.0.2
 requests==2.32.4
-rich==13.9.4
+rich==14.0.0  # 统一版本
 toml==0.10.2
 tornado==6.5.1
 typing-extensions==4.14.0
-tzdata==2025b
-tzlocal==5.3
+brotli==1.1.0  # 修正包名
+tzdata==2025.2  # 修正版本号
+m2w64-libwinpthread-git==5.0.0.4634.697  # 移除非法字符
