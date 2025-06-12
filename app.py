@@ -23,7 +23,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# 自定义CSS样式
+# 自定义CSS样式（增强版）
 st.markdown("""
 <style>
     .main-header {
@@ -37,12 +37,29 @@ st.markdown("""
         margin-top: 1.5rem;
         margin-bottom: 0.5rem;
     }
+    .scenic-title {
+        font-size: 1.5rem !important;
+        font-weight: bold;
+        color: #263238;
+        margin-bottom: 0.5rem;
+    }
     .card {
         background-color: #f8f9fa;
-        border-radius: 10px;
-        padding: 1rem;
+        border-radius: 12px;
+        padding: 1.2rem;
+        margin-bottom: 1.5rem;
+        box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        transition: transform 0.3s, box-shadow 0.3s;
+    }
+    .card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+    }
+    .scenic-image {
+        width: 100%;
+        border-radius: 8px;
         margin-bottom: 1rem;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        box-shadow: 0 4px 10px rgba(0,0,0,0.1);
     }
     .dataframe {
         border-radius: 5px;
@@ -68,12 +85,22 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 缓存数据加载函数，避免重复加载
+# 缓存数据加载函数（增加图片路径加载）
 @st.cache_data
 def load_data():
     try:
         # 尝试加载预处理后的数据
         df = pd.read_excel('景区与评论数据集.xlsx_关键词与情感得分.xlsx')
+        
+        # 假设数据集中包含图片路径列"图片路径"，如果没有请修改此处
+        if '图片路径' in df.columns:
+            # 构建景区名称到图片路径的映射
+            scenic_image_map = df[['景区名称', '图片路径']].drop_duplicates().set_index('景区名称')['图片路径'].to_dict()
+        else:
+            # 如果没有图片路径，创建空映射
+            scenic_image_map = {}
+            st.warning("数据集中未找到图片路径信息，请确保数据包含'图片路径'列")
+        
         scenic_reviews = df.groupby('景区名称')['评论内容'].agg(lambda x: ' '.join(x)).reset_index()
         
         # 计算文本相似度
@@ -102,11 +129,24 @@ def load_data():
             with open('svd_model.pkl', 'wb') as f:
                 pickle.dump(svd_model, f)
         
-        return df, scenic_reviews, text_similarity_matrix, image_similarity_matrix, scenic_index, svd_model
+        return df, scenic_reviews, text_similarity_matrix, image_similarity_matrix, scenic_index, svd_model, scenic_image_map
     
     except Exception as e:
         st.error(f"数据加载错误: {str(e)}")
-        return None, None, None, None, None, None
+        return None, None, None, None, None, None, {}
+
+# 显示景区图片的函数
+def display_scenic_image(scenic_name, image_map, default_image="default_scenic.jpg"):
+    """显示景区图片，支持自定义默认图片"""
+    if scenic_name in image_map and os.path.exists(image_map[scenic_name]):
+        try:
+            return st.image(image_map[scenic_name], caption=scenic_name, use_column_width=True, output_format="PNG")
+        except Exception as e:
+            st.warning(f"加载图片 {image_map[scenic_name]} 时出错: {str(e)}")
+            return st.image(default_image, caption="默认景区图片", use_column_width=True, output_format="PNG")
+    else:
+        st.warning(f"未找到 {scenic_name} 的图片，显示默认图片")
+        return st.image(default_image, caption="默认景区图片", use_column_width=True, output_format="PNG")
 
 # 主应用程序
 def main():
@@ -114,9 +154,9 @@ def main():
     st.markdown("<h1 class='main-header'>5A级景区推荐系统</h1>", unsafe_allow_html=True)
     st.markdown("---")
     
-    # 加载数据
+    # 加载数据（包含图片映射）
     with st.spinner("正在加载数据..."):
-        df, scenic_reviews, text_similarity_matrix, image_similarity_matrix, scenic_index, svd_model = load_data()
+        df, scenic_reviews, text_similarity_matrix, image_similarity_matrix, scenic_index, svd_model, scenic_image_map = load_data()
     
     if df is None:
         st.warning("无法加载数据，请确保相关文件存在。")
@@ -182,10 +222,22 @@ def main():
             fig.update_layout(height=400)
             st.plotly_chart(fig)
         
-        # 景区详细信息表格
-        st.markdown("#### 景区详细信息")
+        # 景区详细信息表格（增强版，包含图片预览）
+        st.markdown("#### 景区详细信息（含图片预览）")
         scenic_info = df[['景区名称', '评分', '情感得分']].drop_duplicates()
-        st.dataframe(scenic_info, height=400)
+        
+        # 创建包含图片的表格
+        for _, row in scenic_info.iterrows():
+            scenic_name = row['景区名称']
+            col1, col2, col3 = st.columns([3, 1, 1])
+            with col1:
+                st.markdown(f"<h3 class='scenic-title'>{scenic_name}</h3>", unsafe_allow_html=True)
+                display_scenic_image(scenic_name, scenic_image_map)
+            with col2:
+                st.metric("评分", f"{row['评分']:.2f}/5.0")
+            with col3:
+                st.metric("情感得分", f"{row['情感得分']:.4f}")
+            st.markdown("---")
     
     # 情感分析页面
     elif page == "情感分析":
@@ -264,10 +316,14 @@ def main():
                     title=f'{selected_scenic} 评论中出现频率最高的关键词'
                 )
                 st.plotly_chart(fig)
+                
+                # 显示景区图片
+                st.markdown(f"<h3 class='scenic-title'>{selected_scenic} 图片</h3>", unsafe_allow_html=True)
+                display_scenic_image(selected_scenic, scenic_image_map)
             else:
                 st.info("该景区评论中没有足够的关键词信息")
     
-    # 相似景区推荐页面
+    # 相似景区推荐页面（关键修改点：添加图片）
     elif page == "相似景区推荐":
         st.markdown("<h2 class='sub-header'>相似景区推荐</h2>", unsafe_allow_html=True)
         
@@ -297,6 +353,10 @@ def main():
                 
                 st.markdown(f"### 与 {selected_scenic} 最相似的景区")
                 
+                # 显示选中景区的图片
+                st.markdown(f"<h3 class='scenic-title'>{selected_scenic} 图片</h3>", unsafe_allow_html=True)
+                display_scenic_image(selected_scenic, scenic_image_map)
+                
                 for i, (scenic_idx, score) in enumerate(top_scenics):
                     similar_scenic = scenic_reviews.iloc[scenic_idx]['景区名称']
                     avg_rating = df[df['景区名称'] == similar_scenic]['评分'].mean()
@@ -304,12 +364,15 @@ def main():
                     
                     st.markdown(f"""
                     <div class="card">
-                        <h3>{i+1}. {similar_scenic}</h3>
+                        <h3 class='scenic-title'>{i+1}. {similar_scenic}</h3>
                         <p>相似度: {score:.4f}</p>
                         <p>平均评分: {avg_rating:.2f}/5.0</p>
                         <p>情感得分: {avg_sentiment:.4f}</p>
                     </div>
                     """, unsafe_allow_html=True)
+                    
+                    # 在每个相似景区卡片中添加图片
+                    display_scenic_image(similar_scenic, scenic_image_map)
             else:
                 st.warning("该景区不在数据集中或无法计算相似度")
         
@@ -333,12 +396,22 @@ def main():
                     )
                     fig.update_layout(height=800)
                     st.plotly_chart(fig)
+                    
+                    # 显示热门景区图片预览
+                    st.markdown("#### 热门景区图片预览")
+                    for name in top_scenic_names[:10]:  # 显示前10个
+                        if name in scenic_image_map and os.path.exists(scenic_image_map[name]):
+                            col1, col2 = st.columns([4, 1])
+                            with col1:
+                                st.markdown(f"<h4>{name}</h4>", unsafe_allow_html=True)
+                            with col2:
+                                st.image(scenic_image_map[name], width=100)
                 else:
                     st.info("没有足够的景区数据来生成热力图")
             else:
                 st.warning("无法加载相似度数据")
     
-    # 个性化推荐页面
+    # 个性化推荐页面（关键修改点：添加图片）
     elif page == "个性化推荐":
         st.markdown("<h2 class='sub-header'>个性化景区推荐</h2>", unsafe_allow_html=True)
         
@@ -357,7 +430,14 @@ def main():
                 else:
                     st.markdown(f"#### 用户 {user_id} 去过的景区")
                     visited_info = df[df['用户ID'] == user_id][['景区名称', '评分', '情感得分']].drop_duplicates()
-                    st.dataframe(visited_info)
+                    
+                    # 显示用户去过的景区图片
+                    for scenic in visited_scenics:
+                        st.markdown(f"<h3 class='scenic-title'>{scenic}</h3>", unsafe_allow_html=True)
+                        display_scenic_image(scenic, scenic_image_map)
+                        st.metric("评分", f"{df[df['景区名称'] == scenic]['评分'].mean():.2f}/5.0")
+                        st.metric("情感得分", f"{df[df['景区名称'] == scenic]['情感得分'].mean():.4f}")
+                        st.markdown("---")
                     
                     # 推荐相似景区
                     similar_scenics = []
@@ -412,7 +492,7 @@ def main():
                         recommendations_df = pd.DataFrame(recommendations)
                         recommendations_df = recommendations_df.sort_values('预测评分', ascending=False)
                         
-                        # 显示推荐结果
+                        # 显示推荐结果（含图片）
                         for i, rec in recommendations_df.iterrows():
                             scenic_name = rec['景区名称']
                             avg_rating = df[df['景区名称'] == scenic_name]['评分'].mean()
@@ -420,13 +500,16 @@ def main():
                             
                             st.markdown(f"""
                             <div class="card">
-                                <h3>{i+1}. {scenic_name}</h3>
+                                <h3 class='scenic-title'>{i+1}. {scenic_name}</h3>
                                 <p>预测评分: {rec['预测评分']:.2f}/5.0</p>
                                 <p>相似度: {rec['相似度']:.4f}</p>
                                 <p>实际平均评分: {avg_rating:.2f}/5.0</p>
                                 <p>情感得分: {avg_sentiment:.4f}</p>
                             </div>
                             """, unsafe_allow_html=True)
+                            
+                            # 显示推荐景区图片
+                            display_scenic_image(scenic_name, scenic_image_map)
                     else:
                         st.info("没有找到适合的推荐景区")
         
@@ -464,6 +547,18 @@ def main():
                     )
                     fig.update_layout(height=600)
                     st.plotly_chart(fig)
+                    
+                    # 显示预测景区的图片
+                    st.markdown("#### 预测景区图片预览")
+                    for i, rec in enumerate(predictions_df.head(10).itertuples()):
+                        col1, col2, col3 = st.columns([3, 1, 1])
+                        with col1:
+                            st.markdown(f"<h4>{rec.景区名称}</h4>", unsafe_allow_html=True)
+                        with col2:
+                            st.metric("预测评分", f"{rec.预测评分:.2f}")
+                        with col3:
+                            display_scenic_image(rec.景区名称, scenic_image_map, default_image=None)  # 小图不显示默认
+                        st.markdown("---")
                 else:
                     st.info("该用户已访问所有景区或数据不足")
             
